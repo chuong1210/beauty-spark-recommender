@@ -1,0 +1,99 @@
+<!-- templates/product_detail.html -->
+{% extends "base.html" %}
+{% block content %}
+<div class="mt-4">
+    <div class="row">
+        <div class="col-md-5">
+            {% if product.images and product.images|length > 0 %}
+            <img src="{{ product.images[0] }}" class="img-fluid rounded" alt="{{ product.title }}">
+            {% else %}
+            <div class="bg-secondary rounded d-flex align-items-center justify-content-center" style="height: 400px;">
+                <i class="fas fa-image fa-5x text-white"></i>
+            </div>
+            {% endif %}
+        </div>
+        <div class="col-md-7">
+            <h2>{{ product.title }}</h2>
+            
+            {% if product.average_rating %}
+            <div class="rating-stars mb-3">
+                {% for i in range(product.average_rating|int) %}
+                <i class="fas fa-star"></i>
+                {% endfor %}
+                <span class="ms-2">{{ "%.1f"|format(product.average_rating) }}</span>
+                <small class="text-muted">({{ product.rating_number }} reviews)</small>
+            </div>
+            {% endif %}
+
+            {% if product.store %}
+            <p><strong>Brand:</strong> {{ product.store }}</p>
+            {% endif %}
+
+            {% if product.main_category %}
+            <p><strong>Category:</strong> <span class="badge bg-primary">{{ product.main_category }}</span></p>
+            {% endif %}
+
+            {% if product.price %}
+            <h4 class="text-primary">{{ product.price }}</h4>
+            {% endif %}
+
+            {% if product.description %}
+            <div class="mt-3">
+                <h5>Description</h5>
+                {% for desc in product.description[:3] %}
+                <p>{{ desc }}</p>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if product.features %}
+            <div class="mt-3">
+                <h5>Features</h5>
+                <ul>
+                    {% for feature in product.features[:5] %}
+                    <li>{{ feature }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Similar Products -->
+    {% if similar_items %}
+    <div class="mt-5">
+        <h3><i class="fas fa-th-large"></i> Customers Also Liked</h3>
+        <div class="row row-cols-1 row-cols-md-3 row-cols-lg-4 g-4 mt-2">
+            {% for item in similar_items %}
+            <div class="col">
+                <div class="card product-card h-100">
+                    {% if item._source.images and item._source.images|length > 0 %}
+                    <img src="{{ item._source.images[0] }}" class="card-img-top product-img" alt="{{ item._source.title }}">
+                    {% else %}
+                    <div class="card-img-top product-img bg-secondary d-flex align-items-center justify-content-center">
+                        <i class="fas fa-image fa-3x text-white"></i>
+                    </div>
+                    {% endif %}
+                    <div class="card-body">
+                        <h6 class="card-title">{{ item._source.title[:60] }}...</h6>
+                        {% if item._source.average_rating %}
+                        <div class="rating-stars mb-2">
+                            {% for i in range(item._source.average_rating|int) %}
+                            <i class="fas fa-star"></i>
+                            {% endfor %}
+                            <small>({{ item._source.rating_number }})</small>
+                        </div>
+                        {% endif %}
+                        <p class="card-text text-muted small">Similarity: {{ "%.2f"|format(item._score) }}</p>
+                    </div>
+                    <div class="card-footer">
+                        <a href="/product/{{ item._id }}" class="btn btn-sm btn-primary w-100">View Details</a>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}/base.html

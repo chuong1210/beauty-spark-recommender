@@ -1,0 +1,42 @@
+<!-- templates/search.html -->
+{% extends "base.html" %}
+{% block content %}
+<div class="mt-4">
+    <h2><i class="fas fa-search"></i> Search Results</h2>
+    {% if query %}
+    <p class="text-muted">Showing results for: <strong>{{ query }}</strong></p>
+    {% endif %}
+
+    <div class="row row-cols-1 row-cols-md-3 row-cols-lg-4 g-4 mt-2">
+        {% for result in results %}
+        <div class="col">
+            <div class="card product-card h-100">
+                {% if result.product.images and result.product.images|length > 0 %}
+                <img src="{{ result.product.images[0] }}" class="card-img-top product-img" alt="{{ result.product.title }}">
+                {% else %}
+                <div class="card-img-top product-img bg-secondary d-flex align-items-center justify-content-center">
+                    <i class="fas fa-image fa-3x text-white"></i>
+                </div>
+                {% endif %}
+                <div class="card-body">
+                    <h6 class="card-title">{{ result.product.title[:60] }}...</h6>
+                    {% if result.product.average_rating %}
+                    <div class="rating-stars mb-2">
+                        {% for i in range(result.product.average_rating|int) %}
+                        <i class="fas fa-star"></i>
+                        {% endfor %}
+                        <small>({{ result.product.rating_number }})</small>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="card-footer">
+                    <a href="/product/{{ result.asin }}" class="btn btn-sm btn-primary w-100">View Details</a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
+
+<!-- templates

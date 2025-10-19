@@ -1,0 +1,217 @@
+version: '3.8'
+
+services:
+  # MongoDB
+  mongodb:
+    image: mongo:6.0
+    container_name: beauty_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - beauty_network
+    environment:
+      MONGO_INITDB_DATABASE: beauty_db
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Elasticsearch
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: beauty_elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - beauty_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Kafka (Zookeeper)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: beauty_zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - beauty_network
+
+  # Kafka
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: beauty_kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+      - "9093:9093"
+
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks:
+      - beauty_network
+    healthcheck:
+      test: kafka-topics --bootstrap-server localhost:9092 --list
+      interval: 30s
+      timeout: 10s
+      retries: 5
+  # spark-master:
+  #   image: apache/spark:3.5.7
+  #   container_name: beauty_spark_master
+  #   entrypoint: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+  #   ports:
+  #     - "8080:8080"
+  #     - "7077:7077"
+  #   volumes:
+  #     - ./data:/data
+  #     - ./models:/models
+  #     - ./app:/app
+  #   environment:
+  #     - SPARK_LOCAL_IP=spark-master
+  #     - SPARK_MASTER_HOST=spark-master
+  #     - SPARK_MASTER_PORT=7077
+  #     - SPARK_MASTER_WEBUI_PORT=8080
+  #   networks:
+  #     - beauty_network
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8080"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+  # # Spark Worker (Apache Spark official image)
+  # spark-worker:
+  #   image: apache/spark:3.5.7
+  #   container_name: beauty_spark_worker
+  #   depends_on:
+  #     spark-master:
+  #       condition: service_healthy
+  #   entrypoint: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+  #   ports:
+  #     - "8081:8081"
+  #   volumes:
+  #     - ./data:/data
+  #     - ./models:/models
+  #     - ./app:/app
+  #   environment:
+  #     - SPARK_LOCAL_IP=spark-worker
+  #     - SPARK_WORKER_PORT=8081
+  #     - SPARK_WORKER_WEBUI_PORT=8081
+  #     - SPARK_WORKER_CORES=2
+  #     - SPARK_WORKER_MEMORY=2G
+  #   networks:
+  #     - beauty_network
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8081"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: beauty_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    networks:
+      - beauty_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # spark-master:
+  #   image: apache/spark:4.1.0-preview2-scala2.13-java21-python3-r-ubuntu
+  #   container_name: beauty_spark_master
+  #   command: ["/bin/bash", "-c", "/opt/spark/sbin/start-master.sh && tail -f /dev/null"]
+  #   ports:
+  #     - "8080:8080"   # Spark Master UI
+  #     - "7077:7077"   # Spark Master RPC
+  #   volumes:
+  #     - ./data:/data
+  #     - ./models:/models
+  #     - ./app:/app
+  #   networks:
+  #     - beauty_network
+
+  # spark-worker:
+  #   image: apache/spark:4.1.0-preview2-scala2.13-java21-python3-r-ubuntu
+  #   container_name: beauty_spark_worker
+  #   depends_on:
+  #     - spark-master
+  #   command: ["/bin/bash", "-c", "/opt/spark/sbin/start-worker.sh spark://spark-master:7077 && tail -f /dev/null"]
+  #   environment:
+  #     - SPARK_WORKER_MEMORY=4G
+  #     - SPARK_WORKER_CORES=2
+  #   volumes:
+  #     - ./data:/data
+  #     - ./models:/models
+  #     - ./app:/app
+  #   networks:
+  #     - beauty_network
+
+  # Flask Web Application
+  # web:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: beauty_web
+  #   depends_on:
+  #     mongodb:
+  #       condition: service_healthy
+  #     elasticsearch:
+  #       condition: service_healthy
+  #     kafka:
+  #       condition: service_healthy
+  #   ports:
+  #     - "5000:5000"
+  #   volumes:
+  #     - ./app:/app
+  #     - ./models:/models
+  #     - ./templates:/app/templates
+  #     - ./static:/app/static
+  #   environment:
+  #     - FLASK_APP=app.py
+  #     - FLASK_ENV=development
+  #     - SECRET_KEY=beauty-rec-secret-key-2024
+  #   networks:
+  #     - beauty_network
+  #   command: python app.py
+
+networks:
+  beauty_network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  elasticsearch_data:
+  redis_data:
