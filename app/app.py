@@ -8,7 +8,7 @@ from pymongo import MongoClient
 from kafka import KafkaProducer, KafkaConsumer
 import json
 import threading
-
+from viz import generate_all_viz  # Import
 # Redis Cache Wrapper Class (sửa: thêm class này để implement các method)
 class RedisCache:
     def __init__(self, host='localhost', port=6379, db=0):
@@ -184,6 +184,44 @@ def rate_limit(limit=100, window=3600, action='api_call'):
 
 # All other routes remain exactly the same as provided...
 # (Paste the full routes code here, no changes needed since redis_cache now has methods)
+# Thêm import nếu cần
+from recommendation_engine import HybridRecommender  # Giả sử đã có
+
+# Trong app init (sau recommender = ...)
+user_sample_file = "training_users_sample.txt"
+with open(user_sample_file, 'r') as f:
+    all_users = [line.strip() for line in f.readlines()[:50]]  # 50 users demo
+
+
+# Route mới: /user/<user_id>
+@app.route('/user/<user_id>')
+def user_page(user_id):
+    """Trang user cá nhân với recs"""
+    # Simulate login (không cần session thật cho demo)
+    if user_id not in all_users:
+        return "User not found", 404
+    
+    # Get recs cá nhân
+    recs = recommender.get_hybrid_recommendations(user_id, num=10)
+    
+    # Enrich với product details (nếu cần, từ ES/Mongo)
+    enriched_recs = []
+    for rec in recs:
+        try:
+            # Từ ES hoặc Mongo
+            product = recommender.es.get(index='beauty_products', id=rec['asin'])['_source']
+            enriched_recs.append({
+                'asin': rec['asin'],
+                'score': rec['score'],
+                'product': product  # title, images, price, etc.
+            })
+        except:
+            enriched_recs.append(rec)  # Fallback
+    
+    return render_template('user.html', 
+                          user_id=user_id,
+                          recommendations=enriched_recs)
+import os  # Thêm import nếu chưa có
 
 @app.route('/')
 def index():
@@ -196,11 +234,22 @@ def index():
     
     # Get user's recent activity
     recent_reviews = recommender.get_user_history(user_id, limit=5)
+    quick_recs = recommender.get_hybrid_recommendations(user_id, 3)  # Thêm: 3 quick recs
+    
+    # Mới: Check viz images tồn tại (tránh 404)
+    viz_images = []
+    image_files = ['rating_histogram.png', 'categories_pie.png']
+    for img in image_files:
+        if os.path.exists(os.path.join('static', img)):
+            viz_images.append(img)
+        else:
+            print(f"Warning: {img} not found in static/ – Run viz.py first!")
     
     return render_template('index.html', 
                           username=username,
-                          recent_reviews=recent_reviews)
-
+                          recent_reviews=recent_reviews,
+                          viz_images=viz_images,  # Pass list filtered
+                          quick_recs=quick_recs)  # Pass vào template
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     """User registration"""

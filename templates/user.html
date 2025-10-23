@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Recommendations for {{ user_id }} - Beauty Recs{% endblock %}
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="fas fa-user"></i> Recommendations for User: {{ user_id }}</h2>
+        <a href="/" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back to Home</a>
+    </div>
+    
+    {% if recommendations %}
+    <div class="row">
+        {% for rec in recommendations %}
+        <div class="col-md-4 mb-4">
+            <div class="card product-card">
+                {% if rec.product.images and rec.product.images|length > 0 %}
+                <img src="{{ rec.product.images[0] }}" class="card-img-top product-img" alt="{{ rec.product.title }}">
+                {% else %}
+                <div class="card-img-top product-img bg-light d-flex align-items-center justify-content-center">
+                    <i class="fas fa-image fa-3x text-muted"></i>
+                </div>
+                {% endif %}
+                <div class="card-body">
+                    <h5 class="card-title">{{ rec.product.title[:50] }}...</h5>
+                    <p class="card-text text-muted">{{ rec.product.main_category }}</p>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <small class="text-success fw-bold">Score: {{ "%.2f"|format(rec.score) }}</small>
+                        <small>
+                            {% if rec.product.average_rating %}
+                            {% for i in range((rec.product.average_rating)|int) %}
+                            <i class="fas fa-star rating-stars"></i>
+                            {% endfor %}
+                            {% endif %}
+                        </small>
+                    </div>
+                    <a href="/product/{{ rec.asin }}" class="btn btn-primary mt-2 w-100">View Details</a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert alert-info text-center">
+        <i class="fas fa-info-circle fa-2x mb-2"></i>
+        <h4>No recommendations yet</h4>
+        <p>Try exploring products or updating your preferences.</p>
+        <a href="/search" class="btn btn-primary">Start Searching</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

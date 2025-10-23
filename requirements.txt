@@ -9,5 +9,5 @@ werkzeug==3.0.1
 findspark
 redis-cache
 pycryptodome
-
+matplotlib
 python-dotenv==1.0.0

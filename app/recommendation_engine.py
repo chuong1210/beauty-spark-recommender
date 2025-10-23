@@ -5,42 +5,55 @@ from pyspark.ml import PipelineModel
 from pyspark.ml.recommendation import ALSModel
 import numpy as np
 import os
-
+from datetime import datetime  # Fix: Thêm import datetime
+import time
 class HybridRecommender:
-    def __init__(self, es_host='localhost', es_port=9200,  # Sửa: default localhost cho local
-                 mongo_host='localhost', mongo_port=27017):  # Sửa: default localhost
+    def __init__(self, es_host='localhost', es_port=9200,
+                 mongo_host='localhost', mongo_port=27017):
         self.es = Elasticsearch([f'http://{es_host}:{es_port}'])
         
-        # Sử dụng env vars cho flexibility (Docker: MONGO_HOST=mongodb, local: localhost)
-        mongo_host = os.getenv("MONGO_HOST", mongo_host)  # Fallback to param if env not set
-        mongo_port = int(os.getenv("MONGO_PORT", mongo_port))
+        # Sử dụng env vars cho flexibility, nhưng force 'localhost' nếu Docker không chạy
+        mongo_host = os.getenv("MONGO_HOST", mongo_host)
+        if mongo_host == 'mongodb':  # Fix: Detect Docker name, fallback local
+            mongo_host = 'localhost'
+            print("Detected Docker MONGO_HOST='mongodb' – switched to 'localhost' for local run")
+        mongo_port = int(os.getenv("MONGO_PORT", str(mongo_port)))  # Fix: str() cho env
         mongo_user = os.getenv("MONGO_USER", "root")
         mongo_password = os.getenv("MONGO_PASSWORD", "admin123")
         mongo_db = os.getenv("MONGO_DATABASE", "beauty_db")
 
-        # MongoDB (có authSource=admin)
-        self.mongo_client = MongoClient(
-            f"mongodb://{mongo_user}:{mongo_password}@{mongo_host}:{mongo_port}/{mongo_db}?authSource=admin"
-        )
-        self.db = self.mongo_client[mongo_db]  # Sửa: dùng mongo_db từ env
+        # MongoDB URI (Fix: Đảm bảo localhost và authSource cuối)
+        mongo_uri = f"mongodb://{mongo_user}:{mongo_password}@{mongo_host}:{mongo_port}/{mongo_db}?authSource=admin"
+        print(f"Using Mongo URI: {mongo_uri}")  # Debug: In URI để check
         
-        # Test connection (optional, để debug)
-        try:
-            self.db.command('ping')
-            print("MongoDB connected successfully")
-        except Exception as e:
-            print(f"MongoDB connection error: {e}")
+        # MongoDB connection với retry
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self.mongo_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)  # Timeout ngắn cho retry
+                self.db = self.mongo_client[mongo_db]
+                self.db.command('ping')  # Test ping
+                print("MongoDB connected successfully")
+                break
+            except Exception as e:
+                print(f"MongoDB connection attempt {attempt+1} failed: {e}")
+                if attempt == max_retries - 1:
+                    print("All retries failed – using dummy mode for Mongo")
+                    self.db = None  # Fallback empty db
+                else:
+                    time.sleep(2)  # Wait 2s retry
         
-        # Initialize Spark (thêm Mongo connector nếu cần load từ Mongo, nhưng ở đây chỉ load models local)
+        # Initialize Spark
         self.spark = SparkSession \
             .builder \
             .appName("RecommendationEngine") \
             .master("local[*]") \
-            .config("spark.driver.memory", "2g") \
+            .config("spark.driver.memory", "4g") \
+            .config("spark.executor.memory", "2g") \
             .config("spark.jars.packages", "org.mongodb.spark:mongo-spark-connector_2.12:3.0.1") \
             .getOrCreate()
         
-        # Load models (thêm try-except để tránh crash nếu models missing)
+        # Load models với try-except
         try:
             self.als_model = ALSModel.load("models/als_model")
             self.indexer_model = PipelineModel.load("models/indexer_model")
@@ -50,24 +63,55 @@ class HybridRecommender:
             self.als_model = None
             self.indexer_model = None
     
+    def _get_popular_fallback(self, num=10):
+        """Fallback: Top popular items from ES (sort by rating_number)"""
+        try:
+            body = {
+                "query": {"match_all": {}},
+                "sort": [{"rating_number": {"order": "desc"}}],
+                "size": num,
+                "_source": ["asin", "title", "average_rating", "rating_number"]
+            }
+            results = self.es.search(index='beauty_products', body=body)
+            
+            fallback_recs = []
+            for hit in results['hits']['hits']:
+                fallback_recs.append({
+                    'asin': hit['_id'],
+                    'score': hit['_source'].get('rating_number', 0) / 1000.0,
+                    'product': hit['_source']
+                })
+            print(f"Fallback: {len(fallback_recs)} popular items for cold-start")
+            return fallback_recs
+        except Exception as e:
+            print(f"Fallback error: {e}")
+            return []
+    
     def vector_similarity_query(self, query_vector, category=None, 
                                 size=10, cosine=True):
-        """
-        Create Elasticsearch vector similarity query
-        """
         if cosine:
-            score_fn = "doc['model_factor'].size() == 0 ? 0 : cosineSimilarity(params.query_vector, 'model_factor') + 1.0"  # Sửa: params.query_vector
+            score_fn = "doc['model_factor'].size() == 0 ? 0 : cosineSimilarity(params.query_vector, 'model_factor') + 1.0"
         else:
-            score_fn = "doc['model_factor'].size() == 0 ? 0 : sigmoid(1, Math.E, -dotProduct(params.query_vector, 'model_factor'))"  # Sửa: params.query_vector
+            score_fn = "doc['model_factor'].size() == 0 ? 0 : sigmoid(1, Math.E, -dotProduct(params.query_vector, 'model_factor'))"
+        
+        base_query = {"match_all": {}}
+        if category:
+            base_query = {
+                "bool": {
+                    "must": [
+                        {"term": {"main_category": category}}
+                    ]
+                }
+            }
         
         query_body = {
             "query": {
                 "script_score": {
-                    "query": {"match_all": {}},
+                    "query": base_query,
                     "script": {
                         "source": score_fn,
                         "params": {
-                            "query_vector": query_vector  # Sửa: key đúng
+                            "query_vector": query_vector
                         }
                     }
                 }
@@ -75,24 +119,9 @@ class HybridRecommender:
             "size": size
         }
         
-        # Add category filter if specified
-        if category:
-            query_body["query"]["script_score"]["query"] = {
-                "bool": {
-                    "must": [  # Sửa: dùng "must" thay vì "filter" để kết hợp với script_score
-                        {
-                            "term": {"main_category": category}
-                        }
-                    ]
-                }
-            }
-        
         return query_body
     
     def get_similar_items_by_vector(self, asin, num=10):
-        """
-        Content-based recommendation using item vectors
-        """
         try:
             response = self.es.get(index='beauty_products', id=asin)
             source = response['_source']
@@ -104,14 +133,10 @@ class HybridRecommender:
             query_vector = source['model_factor']
             category = source.get('main_category')
             
-            # Search for similar items
-            query = self.vector_similarity_query(query_vector, category, 
-                                                 size=num+1, cosine=True)
+            query = self.vector_similarity_query(query_vector, category, size=num+1, cosine=True)
             results = self.es.search(index='beauty_products', body=query)
             
-            # Exclude the query item itself
-            hits = [hit for hit in results['hits']['hits'] 
-                    if hit['_id'] != asin][:num]
+            hits = [hit for hit in results['hits']['hits'] if hit['_id'] != asin][:num]
             
             return source, hits
         
@@ -120,32 +145,26 @@ class HybridRecommender:
             return None, []
     
     def get_collaborative_recommendations(self, user_id, num=10):
-        """
-        Collaborative filtering recommendations using ALS
-        """
+        """Fix: Remove duplicate if, add fallback"""
         if not self.als_model or not self.indexer_model:
             print("Models not loaded, skipping CF")
-            return []
+            return self._get_popular_fallback(num)
         
         try:
-            # Get user index
             user_indexer = self.indexer_model.stages[0]
             user_labels = user_indexer.labels
             
             if user_id not in user_labels:
-                print(f"User {user_id} not found in training data")
-                return []
+                print(f"User {user_id} not found in training data – using popular fallback")
+                return self._get_popular_fallback(num)  # Fix: Fallback nếu cold-start
             
             user_idx = user_labels.index(user_id)
             
-            # Create user dataframe
             from pyspark.sql import Row
             user_df = self.spark.createDataFrame([Row(reviewerId_index=float(user_idx))])
             
-            # Get recommendations
             recs = self.als_model.recommendForUserSubset(user_df, num)
             
-            # Extract ASINs
             asin_indexer = self.indexer_model.stages[1]
             asin_labels = asin_indexer.labels
             
@@ -161,35 +180,27 @@ class HybridRecommender:
                             'score': score
                         })
             
-            return recommendations[:num]  # Đảm bảo đúng số lượng
+            return recommendations[:num]
         
         except Exception as e:
             print(f"Error getting collaborative recommendations: {e}")
-            return []
+            return self._get_popular_fallback(num)  # Fix: Fallback nếu error
     
     def get_hybrid_recommendations(self, user_id, num=10, 
                                    cf_weight=0.6, cb_weight=0.4):
-        """
-        Hybrid recommendation combining collaborative and content-based
-        """
-        # Get collaborative filtering recommendations
         cf_recs = self.get_collaborative_recommendations(user_id, num*2)
         
         if not cf_recs:
-            # Fallback to popular items nếu CF fail
-            try:
-                popular = self.es.search(
-                    index='beauty_products',
-                    body={"query": {"function_score": {"query": {"match_all": {}}, "functions": [{"field_value_factor": {"field": "rating_number", "factor": 1.0}}]}}}
-                )
-                return [
-                    {'asin': hit['_id'], 'score': hit['_score'], 'product': hit['_source']}
-                    for hit in popular['hits']['hits'][:num]
-                ]
-            except:
-                return []
+            print(f"Full cold-start for {user_id} – using enhanced fallback")
+            popular = self._get_popular_fallback(num // 2)
+            # Giả sử top category 'All Beauty'
+            hot_cats = self._get_category_hot_items("All Beauty", num // 2)
+            fallback = popular + hot_cats
+            return [
+                {'asin': item['asin'], 'score': item['score'], 'product': item.get('product', {})}
+                for item in fallback[:num]
+            ]
         
-        # Get product details from Elasticsearch
         hybrid_scores = {}
         
         for rec in cf_recs:
@@ -197,14 +208,10 @@ class HybridRecommender:
             cf_score = rec['score']
             
             try:
-                # Get product from ES
                 response = self.es.get(index='beauty_products', id=asin)
                 product = response['_source']
                 
-                # Calculate hybrid score
                 hybrid_score = cf_weight * cf_score
-                
-                # Add content-based boost if available
                 if 'average_rating' in product and product['average_rating']:
                     rating_boost = product['average_rating'] / 5.0
                     hybrid_score += cb_weight * rating_boost
@@ -219,28 +226,50 @@ class HybridRecommender:
                 print(f"Could not get product {asin}: {e}")
                 continue
         
-        # Sort by score
-        sorted_recs = sorted(hybrid_scores.values(), 
-                             key=lambda x: x['score'], 
-                             reverse=True)[:num]
+        sorted_recs = sorted(hybrid_scores.values(), key=lambda x: x['score'], reverse=True)[:num]
         
-        return sorted_recs
+        # Pad nếu ít
+        if len(sorted_recs) < num:
+            extra = self._get_popular_fallback(num - len(sorted_recs))
+            sorted_recs += [
+                {'asin': item['asin'], 'score': item['score'], 'product': item.get('product', {})}
+                for item in extra[:num - len(sorted_recs)]
+            ]
+        
+        return sorted_recs[:num]
+    
+    def _get_category_hot_items(self, category, num=5):
+        """Helper: Hot items from category (ES query)"""
+        try:
+            body = {
+                "query": {"term": {"main_category": category}},
+                "sort": [{"rating_number": {"order": "desc"}}],
+                "size": num
+            }
+            results = self.es.search(index='beauty_products', body=body)
+            return [
+                {'asin': hit['_id'], 'score': hit['_source'].get('rating_number', 0) / 1000.0, 'product': hit['_source']}
+                for hit in results['hits']['hits']
+            ]
+        except:
+            return []
     
     def search_and_recommend(self, query, num=10):
-        """
-        Search-based recommendations
-        """
         try:
+            if not self.es.indices.exists(index='beauty_products'):
+                raise Exception("Index 'beauty_products' not found. Run elasticsearch_indexer.py first.")
+            
             search_body = {
                 "query": {
                     "multi_match": {
                         "query": query,
-                        "fields": ["title^3", "description", "features^2", 
-                                   "main_category^2", "store"]
+                        "fields": ["title^3", "description", "features^2", "main_category^2", "store"],
+                        "type": "best_fields",
+                        "fuzziness": "AUTO"
                     }
                 },
                 "size": num,
-                "sort": [{"_score": {"order": "desc"}}]  # Thêm sort để ổn định
+                "sort": [{"_score": {"order": "desc"}}]
             }
             
             results = self.es.search(index='beauty_products', body=search_body)
@@ -256,22 +285,43 @@ class HybridRecommender:
             return recommendations
         except Exception as e:
             print(f"Search error: {e}")
-            return []
+            # Fallback Mongo regex search
+            try:
+                from bson.regex import Regex
+                regex_query = Regex.from_native(query, flags='i')
+                products = list(self.db.products.find({
+                    "$or": [
+                        {"title": regex_query},
+                        {"description": {"$regex": query, "$options": "i"}},
+                        {"features": {"$regex": query, "$options": "i"}}
+                    ]
+                }).limit(num))
+                return [
+                    {'asin': p.get('asin', p.get('parent_asin')), 'score': 1.0, 'product': p}
+                    for p in products
+                ]
+            except:
+                return []
     
     def get_user_history(self, user_id, limit=20):
-        """Get user's review history from MongoDB"""
+        """Get user's review history from MongoDB (Fix: Robust connection check)"""
+        if not self.db:
+            print("MongoDB not connected – skipping history")
+            return []
+        
         try:
-            reviews = list(self.db.reviews.find(  # Sửa: dùng self.db thay vì global db
-                {'user_id': user_id}
+            # Test ping trước query
+            self.db.command('ping')
+            reviews = list(self.db.reviews.find({'user_id': user_id}
             ).sort('timestamp', -1).limit(limit))
             
-            # Clean up _id and convert timestamp if needed
             for review in reviews:
                 if '_id' in review:
                     del review['_id']
-                if 'timestamp' in review and isinstance(review['timestamp'], int):
+                if 'timestamp' in review and isinstance(review['timestamp'], (int, float)):
                     review['timestamp'] = datetime.fromtimestamp(review['timestamp'])
             
+            print(f"Loaded {len(reviews)} history items for {user_id}")
             return reviews
         except Exception as e:
             print(f"Error getting user history: {e}")
@@ -284,44 +334,40 @@ class HybridRecommender:
             self.mongo_client.close()
 
     def list_training_users(self, limit=100):
-        """Extract danh sách user_ids có trong training data (từ indexer labels)"""
         if not self.indexer_model:
             print("No indexer model loaded!")
             return []
         
-        # User indexer là stages[0] (reviewerId_index)
         user_indexer = self.indexer_model.stages[0]
-        user_labels = user_indexer.labels  # List tất cả user_id strings
+        user_labels = user_indexer.labels
         
         print(f"Tổng số users trong training data: {len(user_labels)}")
         
-        # In sample (limit để tránh spam, vì có ~500k users)
         print("Sample users (top 10):")
-        for i, user in enumerate(user_labels[:limit]):
+        for i, user in enumerate(user_labels[:10]):
             print(f"  {i}: {user}")
         
-        # Lưu full list vào file nếu cần (optional)
         with open("training_users_sample.txt", "w") as f:
-            for user in user_labels[:1000]:  # Lưu 1000 đầu
+            for user in user_labels[:1000]:
                 f.write(f"{user}\n")
         print("Full sample saved to training_users_sample.txt")
         
         return user_labels
+
+# Test code (giữ nguyên, nhưng fix asin mẫu nếu cần)
 if __name__ == "__main__":
-    # Test với local defaults
     recommender = HybridRecommender(es_host='localhost', mongo_host='localhost')
-    users = recommender.list_training_users(limit=50)  # In 50 users đầu
-    # Test collaborative filtering
+    users = recommender.list_training_users(limit=50)
+    
     print("Testing collaborative filtering...")
-    user_id = "AEZP6Z2C5AVQDZAJECQYZWQRNG3Q"  # User_id mẫu, thay nếu cần
+    user_id = "AEZP6Z2C5AVQDZAJECQYZWQRNG3Q"
     cf_recs = recommender.get_collaborative_recommendations(user_id, num=5)
     print(f"CF recommendations for user {user_id}:")
     for rec in cf_recs:
         print(f"  - {rec['asin']}: {rec['score']:.3f}")
     
-    # Test content-based
     print("\nTesting content-based recommendations...")
-    asin = "B00YQ6X8EO"  # ASIN mẫu, thay nếu cần
+    asin = "B075XCMQ6C"  # Fix: Dùng ASIN thực từ data (từ CF test trước)
     product, similar = recommender.get_similar_items_by_vector(asin, num=5)
     if product:
         print(f"Similar items to {product.get('title', asin)[:50]}...:")
@@ -329,12 +375,17 @@ if __name__ == "__main__":
             title = item['_source'].get('title', item['_id'])[:50] + "..."
             print(f"  - {title}: {item['_score']:.3f}")
     
-    # Test search
     print("\nTesting search recommendations...")
     search_recs = recommender.search_and_recommend("hair spray", num=5)
     print("Search results for 'hair spray':")
     for rec in search_recs:
         title = rec['product'].get('title', rec['asin'])[:50] + "..."
         print(f"  - {title}: {rec['score']:.3f}")
+    
+    print("\nTesting user history...")
+    history = recommender.get_user_history(user_id, limit=3)
+    print(f"Recent reviews for {user_id}: {len(history)} items")
+    for rev in history[:2]:
+        print(f"  - ASIN: {rev.get('asin')}, Rating: {rev.get('rating')}, Date: {rev.get('timestamp')}")
     
     recommender.stop()
