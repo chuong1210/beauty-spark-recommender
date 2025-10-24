@@ -41,13 +41,13 @@
     <h3><i class="fas fa-users"></i> Demo: Chọn User để Xem Recommendations Cá Nhân Hóa</h3>
     <p class="text-muted">Chọn một user từ training data (từ 632k users) để xem gợi ý sản phẩm dựa trên lịch sử reviews.</p>
     <div class="row">
-        {% for user in sample_users %}
+        {% for user in all_users %}
         <div class="col-md-4 col-sm-6 mb-3">
             <div class="card h-100 text-center border-primary">
                 <div class="card-body">
-                    <h5 class="card-title">{{ user.username or user.user_id[:10] }}...</h5>
-                    <p class="card-text text-muted">{{ user.user_id }}</p>
-                    <a href="/user/{{ user.user_id }}" class="btn btn-primary btn-sm">
+                    <h5 class="card-title">{{ user }}...</h5>
+                    <p class="card-text text-muted">{{ user }}</p>
+                    <a href="/user/{{ user }}" class="btn btn-primary btn-sm">
                         <i class="fas fa-eye"></i> Xem Recs
                     </a>
                 </div>

@@ -305,7 +305,7 @@ class HybridRecommender:
     
     def get_user_history(self, user_id, limit=20):
         """Get user's review history from MongoDB (Fix: Robust connection check)"""
-        if not self.db:
+        if self.db is None:  # ✅ Fix: So sánh trực tiếp với None
             print("MongoDB not connected – skipping history")
             return []
         

@@ -8,7 +8,7 @@ from pymongo import MongoClient
 from kafka import KafkaProducer, KafkaConsumer
 import json
 import threading
-from viz import generate_all_viz  # Import
+from .viz import generate_all_viz  # Import
 # Redis Cache Wrapper Class (sửa: thêm class này để implement các method)
 class RedisCache:
     def __init__(self, host='localhost', port=6379, db=0):
@@ -31,15 +31,24 @@ class RedisCache:
         return True, limit - (current_count + 1)
     
     def get_cached_recommendations(self, user_id, method):
-        """Get cached recommendations"""
         key = f"recs:{user_id}:{method}"
         data = self.redis.get(key)
-        return json.loads(data) if data else None
+        if data:
+            print(f"DEBUG: HIT key={key}, data_len={len(data)}")  # Mới thêm
+            return json.loads(data)
+        else:
+            print(f"DEBUG: MISS key={key}")  # Mới thêm
+        return None
     
     def cache_recommendations(self, user_id, method, recs, ttl=3600):
-        """Cache recommendations"""
-        key = f"recs:{user_id}:{method}"
-        self.redis.setex(key, ttl, json.dumps(recs))
+            """Cache recommendations (thêm debug)"""
+            key = f"recs:{user_id}:{method}"
+            try:
+                serialized = json.dumps(recs, default=str)  # Safe serialize (str cho datetime)
+                self.redis.setex(key, ttl, serialized)
+                print(f"DEBUG CACHED: key={key}, ttl={ttl}, data_len={len(serialized)}")  # Debug
+            except Exception as e:
+                print(f"Cache error for {key}: {e}")
     
     def get_cached_product(self, asin):
         """Get cached product"""
@@ -93,6 +102,16 @@ class RedisCache:
         self.redis.lpush(key, asin)
         self.redis.ltrim(key, 0, 99)  # Keep last 100
         self.redis.expire(key, 3600)
+    def get_cached_similar_products(self, asin):
+        """Get cached similar products (mới thêm)"""
+        key = f"similar:{asin}"
+        data = self.redis.get(key)
+        return json.loads(data) if data else None
+    
+    def cache_similar_products(self, asin, similar_items, ttl=3600):
+        """Cache similar products (mới thêm)"""
+        key = f"similar:{asin}"
+        self.redis.setex(key, ttl, json.dumps(similar_items))
     
     def get_trending_products(self, num=20):
         """Get trending products by views"""
@@ -123,9 +142,9 @@ class RedisCache:
 redis_cache = RedisCache()
 
 # Rest of the Flask app code remains the same, but update imports and init
-from recommendation_engine import HybridRecommender
+from .recommendation_engine import HybridRecommender
 
-app = Flask(__name__, template_folder='../templates')
+app = Flask(__name__, template_folder='../templates',    static_folder=os.path.join(os.path.dirname(__file__), '..', 'static'))
 app.secret_key = os.environ.get('SECRET_KEY', 'beauty-rec-secret-key-2024')
 
 # Initialize components
@@ -185,42 +204,68 @@ def rate_limit(limit=100, window=3600, action='api_call'):
 # All other routes remain exactly the same as provided...
 # (Paste the full routes code here, no changes needed since redis_cache now has methods)
 # Thêm import nếu cần
-from recommendation_engine import HybridRecommender  # Giả sử đã có
+from .recommendation_engine import HybridRecommender  # Giả sử đã có
 
 # Trong app init (sau recommender = ...)
-user_sample_file = "training_users_sample.txt"
+user_sample_file = os.path.join(app.root_path, 'training_users_sample.txt')
 with open(user_sample_file, 'r') as f:
     all_users = [line.strip() for line in f.readlines()[:50]]  # 50 users demo
 
+# Giả sử RedisCache và recommender đã init ở đầu file
 
-# Route mới: /user/<user_id>
 @app.route('/user/<user_id>')
 def user_page(user_id):
-    """Trang user cá nhân với recs"""
+    """Trang user cá nhân với recs (thêm tabs hybrid/cf + cache)"""
     # Simulate login (không cần session thật cho demo)
     if user_id not in all_users:
         return "User not found", 404
     
-    # Get recs cá nhân
-    recs = recommender.get_hybrid_recommendations(user_id, num=10)
+    method = request.args.get('method', 'hybrid')  # Default hybrid, ?method=cf để switch
     
-    # Enrich với product details (nếu cần, từ ES/Mongo)
-    enriched_recs = []
-    for rec in recs:
-        try:
-            # Từ ES hoặc Mongo
-            product = recommender.es.get(index='beauty_products', id=rec['asin'])['_source']
-            enriched_recs.append({
-                'asin': rec['asin'],
-                'score': rec['score'],
-                'product': product  # title, images, price, etc.
-            })
-        except:
-            enriched_recs.append(rec)  # Fallback
+    # Cache key: user_id + method
+    cache_key = f"recs:{user_id}:{method}"
+    cached_recs = redis_cache.get_cached_recommendations(user_id, method)
+    
+    if cached_recs:
+        print(f"Cache HIT for {user_id} - {method}")
+        enriched_recs = cached_recs  # Đã enriched
+    else:
+        print(f"Cache MISS for {user_id} - {method}")
+        # Get raw recs
+        if method == 'hybrid':
+            recs = recommender.get_hybrid_recommendations(user_id, num=10)
+        elif method == 'cf':
+            recs = recommender.get_collaborative_recommendations(user_id, num=10)
+        else:
+            recs = []
+        
+        # Enrich với product details (từ ES/Mongo)
+        enriched_recs = []
+        for rec in recs:
+            try:
+                # Từ ES hoặc Mongo
+                product = recommender.es.get(index='beauty_products', id=rec['asin'])['_source']
+                enriched_recs.append({
+                    'asin': rec['asin'],
+                    'score': rec['score'],
+                    'product': product  # title, images, price, etc.
+                })
+            except Exception as e:
+                print(f"Error enriching {rec['asin']}: {e}")
+                enriched_recs.append(rec)  # Fallback raw
+        
+        # Cache enriched recs (3600s = 1h)
+        redis_cache.cache_recommendations(user_id, method, enriched_recs, ttl=3600)
+    
+    # Để tabs: Fetch cả 2 methods (cache nếu có), pass vào template
+    hybrid_recs = enriched_recs if method == 'hybrid' else redis_cache.get_cached_recommendations(user_id, 'hybrid') or []
+    cf_recs = enriched_recs if method == 'cf' else redis_cache.get_cached_recommendations(user_id, 'cf') or []
     
     return render_template('user.html', 
                           user_id=user_id,
-                          recommendations=enriched_recs)
+                          method=method,
+                          hybrid_recs=hybrid_recs,
+                          cf_recs=cf_recs)
 import os  # Thêm import nếu chưa có
 
 @app.route('/')
@@ -238,18 +283,20 @@ def index():
     
     # Mới: Check viz images tồn tại (tránh 404)
     viz_images = []
-    image_files = ['rating_histogram.png', 'categories_pie.png']
-    for img in image_files:
-        if os.path.exists(os.path.join('static', img)):
+    static_dir = os.path.join(app.root_path, '..', 'static')  # Trỏ ra static ở ngoài thư mục app/
+    for img in ['rating_histogram.png', 'categories_pie.png']:
+        img_path = os.path.join(static_dir, img)
+        if os.path.exists(img_path):
             viz_images.append(img)
         else:
-            print(f"Warning: {img} not found in static/ – Run viz.py first!")
+            print(f"⚠️ Warning: {img_path} not found – run viz.py first!")
+
     
     return render_template('index.html', 
                           username=username,
                           recent_reviews=recent_reviews,
                           viz_images=viz_images,  # Pass list filtered
-                          quick_recs=quick_recs)  # Pass vào template
+                          quick_recs=quick_recs,all_users=all_users) # Pass vào template
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     """User registration"""

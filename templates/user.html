@@ -2,49 +2,184 @@
 {% block title %}Recommendations for {{ user_id }} - Beauty Recs{% endblock %}
 {% block content %}
 <div class="container mt-4">
+    <!-- Header với tabs -->
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="fas fa-user"></i> Recommendations for User: {{ user_id }}</h2>
-        <a href="/" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back to Home</a>
+        <h2 class="mb-0"><i class="fas fa-user me-2"></i> Recommendations for User: {{ user_id }}</h2>
+        <div>
+            <a href="/" class="btn btn-outline-secondary me-2"><i class="fas fa-arrow-left"></i> Back to Home</a>
+        </div>
     </div>
     
-    {% if recommendations %}
-    <div class="row">
-        {% for rec in recommendations %}
-        <div class="col-md-4 mb-4">
-            <div class="card product-card">
-                {% if rec.product.images and rec.product.images|length > 0 %}
-                <img src="{{ rec.product.images[0] }}" class="card-img-top product-img" alt="{{ rec.product.title }}">
+    <!-- Tabs Hybrid vs CF -->
+    <ul class="nav nav-tabs nav-fill mb-4" id="recsTabs" role="tablist" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; padding: 5px;">
+        <li class="nav-item" role="presentation">
+            <a class="nav-link {% if method == 'hybrid' %}active{% endif %}" id="hybrid-tab" data-bs-toggle="tab" href="#hybrid" role="tab" aria-controls="hybrid" aria-selected="{% if method == 'hybrid' %}true{% else %}false{% endif %}">
+                <i class="fas fa-layer-group me-1"></i> Hybrid (Kết Hợp)
+            </a>
+        </li>
+        <li class="nav-item" role="presentation">
+            <a class="nav-link {% if method == 'cf' %}active{% endif %}" id="cf-tab" data-bs-toggle="tab" href="#cf" role="tab" aria-controls="cf" aria-selected="{% if method == 'cf' %}true{% else %}false{% endif %}">
+                <i class="fas fa-users me-1"></i> CF (Collaborative)
+            </a>
+        </li>
+    </ul>
+    
+    <div class="tab-content" id="recsTabContent">
+        <!-- Tab Hybrid -->
+        <div class="tab-pane fade {% if method == 'hybrid' %}show active{% endif %}" id="hybrid" role="tabpanel" aria-labelledby="hybrid-tab">
+            <div id="hybridLoading" class="text-center py-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2 text-muted">Đang tải gợi ý hybrid...</p>
+            </div>
+            <div id="hybridContent" style="display: none;">
+                {% if hybrid_recs %}
+                <div class="row">
+                    {% for rec in hybrid_recs %}
+                    <div class="col-lg-3 col-md-4 col-sm-6 mb-4">
+                        <div class="card product-card h-100 shadow-sm border-0" style="transition: all 0.3s ease; border-radius: 15px; overflow: hidden;">
+                            {% if rec.product.images and rec.product.images|length > 0 %}
+                            <img src="{{ rec.product.images[0] }}" class="card-img-top product-img" alt="{{ rec.product.title }}" loading="lazy"
+                                 style="height: 220px; object-fit: cover;">
+                            {% else %}
+                            <div class="product-img bg-gradient" style="background: linear-gradient(45deg, #f093fb 0%, #f5576c 100%); height: 220px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-image fa-3x text-white"></i>
+                            </div>
+                            {% endif %}
+                            <div class="card-body p-3" style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);">
+                                <h6 class="card-title fw-bold text-truncate" style="font-size: 0.95rem; height: 40px; overflow: hidden;">
+                                    {{ rec.product.title[:60] }}...
+                                </h6>
+                                <p class="card-text text-muted small mb-2">{{ rec.product.main_category }}</p>
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="badge {% if rec.score > 7 %}bg-success{% elif rec.score > 5 %}bg-warning{% else %}bg-danger{% endif %}">
+                                        Score: {{ "%.2f"|format(rec.score) }}
+                                    </span>
+                                    <small>
+                                        {% if rec.product.average_rating %}
+                                        {% for i in range((rec.product.average_rating)|int) %}
+                                        <i class="fas fa-star rating-stars"></i>
+                                        {% endfor %}
+                                        <span class="text-muted">({{ rec.product.average_rating }})</span>
+                                        {% endif %}
+                                    </small>
+                                </div>
+                                {% if rec.product.price %}
+                                <p class="fw-bold text-success mb-2">${{ rec.product.price }}</p>
+                                {% endif %}
+                                <a href="/product/{{ rec.asin }}" class="btn btn-primary btn-sm w-100" style="border-radius: 20px;">
+                                    <i class="fas fa-eye me-1"></i> View Details
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
                 {% else %}
-                <div class="card-img-top product-img bg-light d-flex align-items-center justify-content-center">
-                    <i class="fas fa-image fa-3x text-muted"></i>
+                <div class="alert alert-info text-center py-5">
+                    <i class="fas fa-info-circle fa-3x mb-3 text-primary"></i>
+                    <h4>Chưa có gợi ý Hybrid</h4>
+                    <p class="text-muted">Khám phá thêm sản phẩm để nhận khuyến nghị cá nhân hóa.</p>
+                    <a href="/search" class="btn btn-primary">Bắt Đầu Tìm Kiếm</a>
                 </div>
                 {% endif %}
-                <div class="card-body">
-                    <h5 class="card-title">{{ rec.product.title[:50] }}...</h5>
-                    <p class="card-text text-muted">{{ rec.product.main_category }}</p>
-                    <div class="d-flex justify-content-between align-items-center">
-                        <small class="text-success fw-bold">Score: {{ "%.2f"|format(rec.score) }}</small>
-                        <small>
-                            {% if rec.product.average_rating %}
-                            {% for i in range((rec.product.average_rating)|int) %}
-                            <i class="fas fa-star rating-stars"></i>
-                            {% endfor %}
-                            {% endif %}
-                        </small>
-                    </div>
-                    <a href="/product/{{ rec.asin }}" class="btn btn-primary mt-2 w-100">View Details</a>
-                </div>
             </div>
         </div>
-        {% endfor %}
+        
+        <!-- Tab CF -->
+        <div class="tab-pane fade {% if method == 'cf' %}show active{% endif %}" id="cf" role="tabpanel" aria-labelledby="cf-tab">
+            <div id="cfLoading" class="text-center py-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2 text-muted">Đang tải gợi ý CF...</p>
+            </div>
+            <div id="cfContent" style="display: none;">
+                {% if cf_recs %}
+                <div class="row">
+                    {% for rec in cf_recs %}
+                    <div class="col-lg-3 col-md-4 col-sm-6 mb-4">
+                        <!-- Same card structure as hybrid, nhưng thay score label thành "CF Score" -->
+                        <div class="card product-card h-100 shadow-sm border-0" style="transition: all 0.3s ease; border-radius: 15px; overflow: hidden;">
+                            {% if rec.product.images and rec.product.images|length > 0 %}
+                            <img src="{{ rec.product.images[0] }}" class="card-img-top product-img" alt="{{ rec.product.title }}" loading="lazy"
+                                 style="height: 220px; object-fit: cover;">
+                            {% else %}
+                            <div class="product-img bg-gradient" style="background: linear-gradient(45deg, #a8edea 0%, #fed6e3 100%); height: 220px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-image fa-3x text-white"></i>
+                            </div>
+                            {% endif %}
+                            <div class="card-body p-3" style="background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);">
+                                <h6 class="card-title fw-bold text-truncate" style="font-size: 0.95rem; height: 40px; overflow: hidden;">
+                                    {{ rec.product.title[:60] }}...
+                                </h6>
+                                <p class="card-text text-muted small mb-2">{{ rec.product.main_category }}</p>
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="badge bg-info">
+                                        CF Score: {{ "%.2f"|format(rec.score) }}
+                                    </span>
+                                    <small>
+                                        {% if rec.product.average_rating %}
+                                        {% for i in range((rec.product.average_rating)|int) %}
+                                        <i class="fas fa-star rating-stars"></i>
+                                        {% endfor %}
+                                        <span class="text-muted">({{ rec.product.average_rating }})</span>
+                                        {% endif %}
+                                    </small>
+                                </div>
+                                {% if rec.product.price %}
+                                <p class="fw-bold text-success mb-2">${{ rec.product.price }}</p>
+                                {% endif %}
+                                <a href="/product/{{ rec.asin }}" class="btn btn-primary btn-sm w-100" style="border-radius: 20px;">
+                                    <i class="fas fa-eye me-1"></i> View Details
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="alert alert-info text-center py-5">
+                    <i class="fas fa-info-circle fa-3x mb-3 text-primary"></i>
+                    <h4>Chưa có gợi ý CF</h4>
+                    <p class="text-muted">User này chưa có lịch sử đủ để khuyến nghị cộng đồng.</p>
+                    <a href="/search" class="btn btn-primary">Bắt Đầu Tìm Kiếm</a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
     </div>
-    {% else %}
-    <div class="alert alert-info text-center">
-        <i class="fas fa-info-circle fa-2x mb-2"></i>
-        <h4>No recommendations yet</h4>
-        <p>Try exploring products or updating your preferences.</p>
-        <a href="/search" class="btn btn-primary">Start Searching</a>
-    </div>
-    {% endif %}
 </div>
+
+<!-- JS cho tabs + loading (fade-in sau 1s) -->
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Loading animation cho tabs
+        const tabs = ['hybrid', 'cf'];
+        tabs.forEach(tab => {
+            const loading = document.getElementById(tab + 'Loading');
+            const content = document.getElementById(tab + 'Content');
+            if (loading && content) {
+                setTimeout(() => {
+                    loading.style.display = 'none';
+                    content.style.display = 'block';
+                    content.style.opacity = '0';
+                    content.style.transition = 'opacity 0.5s ease-in';
+                    setTimeout(() => { content.style.opacity = '1'; }, 100);
+                }, 1000);
+            }
+        });
+        
+        // Smooth tab switch (optional enhance)
+        const tabLinks = document.querySelectorAll('#recsTabs .nav-link');
+        tabLinks.forEach(link => {
+            link.addEventListener('click', function() {
+                const targetTab = this.getAttribute('href').substring(1);  // e.g., 'hybrid'
+                const url = `/user/{{ user_id }}?method=${targetTab}`;
+                window.location.href = url;  // Reload để fetch cache mới (simple, no AJAX)
+            });
+        });
+    });
+</script>
 {% endblock %}

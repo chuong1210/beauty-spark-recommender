@@ -1,0 +1,211 @@
+
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Redis Monitoring Dashboard</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    margin: 20px;
+                    background-color: #f5f5f5;
+                }
+                .container {
+                    max-width: 1200px;
+                    margin: 0 auto;
+                }
+                .card {
+                    background: white;
+                    padding: 20px;
+                    margin: 10px 0;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }
+                h1 {
+                    color: #333;
+                }
+                h2 {
+                    color: #555;
+                    border-bottom: 2px solid #007bff;
+                    padding-bottom: 10px;
+                }
+                .stat {
+                    display: inline-block;
+                    width: 30%;
+                    margin: 10px;
+                    padding: 10px;
+                    background: #f9f9f9;
+                    border-left: 4px solid #007bff;
+                }
+                .stat-label {
+                    font-size: 12px;
+                    color: #666;
+                    text-transform: uppercase;
+                }
+                .stat-value {
+                    font-size: 24px;
+                    font-weight: bold;
+                    color: #007bff;
+                }
+                table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-top: 10px;
+                }
+                th, td {
+                    padding: 10px;
+                    text-align: left;
+                    border-bottom: 1px solid #ddd;
+                }
+                th {
+                    background-color: #007bff;
+                    color: white;
+                }
+                .warning {
+                    background-color: #fff3cd;
+                    border-left: 4px solid #ffc107;
+                }
+                .success {
+                    background-color: #d4edda;
+                    border-left: 4px solid #28a745;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Redis Monitoring Dashboard</h1>
+                <p>Generated: 2025-10-24T22:08:58.198169</p>
+                
+                <div class="card">
+                    <h2>Memory Usage</h2>
+                    <div class="stat">
+                        <div class="stat-label">Used Memory</div>
+                        <div class="stat-value">961.06K</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Max Memory</div>
+                        <div class="stat-value">Unlimited</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Usage Percent</div>
+                        <div class="stat-value">N/A</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>Performance Metrics</h2>
+                    <div class="stat">
+                        <div class="stat-label">Cache Hit Rate</div>
+                        <div class="stat-value">73.64%</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Commands/sec</div>
+                        <div class="stat-value">0</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Total Commands</div>
+                        <div class="stat-value">331</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>Key Statistics</h2>
+                    <div class="stat">
+                        <div class="stat-label">Total Keys</div>
+                        <div class="stat-value">23</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Key Types</div>
+                        <div class="stat-value">23</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>Top 10 Largest Keys</h2>
+                    <table>
+                        <tr>
+                            <th>Key Name</th>
+                            <th>Size</th>
+                        </tr>
+        
+                        <tr>
+                            <td>recs:AFDYIK3FNPY2JFBQYUWC6GSBMIRQ_2:cf</td>
+                            <td>16.09 KB</td>
+                        </tr>
+            
+                        <tr>
+                            <td>recs:AFDYIK3FNPY2JFBQYUWC6GSBMIRQ_2:hybrid</td>
+                            <td>16.09 KB</td>
+                        </tr>
+            
+                        <tr>
+                            <td>similar:B08MCLM9V7</td>
+                            <td>10.07 KB</td>
+                        </tr>
+            
+                        <tr>
+                            <td>product:B07G19ZXWB</td>
+                            <td>3.07 KB</td>
+                        </tr>
+            
+                        <tr>
+                            <td>product:B07TZ7P1BJ</td>
+                            <td>2.57 KB</td>
+                        </tr>
+            
+                        <tr>
+                            <td>product:B01MDTVZTZ</td>
+                            <td>2.57 KB</td>
+                        </tr>
+            
+                        <tr>
+                            <td>product:B06VSX2B1S</td>
+                            <td>2.57 KB</td>
+                        </tr>
+            
+                        <tr>
+                            <td>product:B07N39Y6W5</td>
+                            <td>1.82 KB</td>
+                        </tr>
+            
+                        <tr>
+                            <td>product:B01LNT83KK</td>
+                            <td>1.82 KB</td>
+                        </tr>
+            
+                        <tr>
+                            <td>product:B01I24RSH8</td>
+                            <td>1.57 KB</td>
+                        </tr>
+            
+                    </table>
+                </div>
+                
+                <div class="card">
+                    <h2>Trending Analysis</h2>
+                    <p>Total Viewed Products: 0</p>
+                    <p>Total Purchased Products: 0</p>
+                    <h3>Top 10 Viewed Products</h3>
+                    <table>
+                        <tr>
+                            <th>ASIN</th>
+                            <th>Views</th>
+                        </tr>
+        
+                    </table>
+                </div>
+                
+                <div class="card">
+                    <h2>Cache Analysis</h2>
+                    <div class="stat">
+                        <div class="stat-label">Cached Recommendations</div>
+                        <div class="stat-value">0</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Cached Searches</div>
+                        <div class="stat-value">0</div>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        

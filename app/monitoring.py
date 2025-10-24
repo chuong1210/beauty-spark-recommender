@@ -15,13 +15,17 @@ class RedisMonitoring:
     def get_memory_stats(self):
         """Get Redis memory statistics"""
         info = self.redis.info('memory')
+        max_memory = info.get('maxmemory', 0)
+        
+        used_memory_percent = "N/A" if max_memory == 0 else f"{(info['used_memory'] / max_memory * 100):.2f}%"
+        
         return {
             'used_memory': self._format_bytes(info['used_memory']),
             'used_memory_human': info['used_memory_human'],
             'used_memory_peak': self._format_bytes(info['used_memory_peak']),
             'used_memory_peak_human': info['used_memory_peak_human'],
-            'used_memory_percent': f"{(info['used_memory'] / info['maxmemory'] * 100):.2f}%",
-            'maxmemory': self._format_bytes(info['maxmemory']),
+            'used_memory_percent': used_memory_percent,
+            'maxmemory': "Unlimited" if max_memory == 0 else self._format_bytes(max_memory),
             'memory_efficiency': self._calculate_efficiency(info)
         }
     
@@ -48,21 +52,22 @@ class RedisMonitoring:
     
     def get_performance_stats(self):
         """Get performance metrics"""
-        info = self.redis.info('stats')
+        info = self.redis.info()  # 👈 Lấy toàn bộ info thay vì chỉ 'stats'
         
-        hits = info['keyspace_hits']
-        misses = info['keyspace_misses']
+        hits = info.get('keyspace_hits', 0)
+        misses = info.get('keyspace_misses', 0)
         total = hits + misses
         
         return {
             'keyspace_hits': hits,
             'keyspace_misses': misses,
-            'total_commands': info['total_commands_processed'],
-            'commands_per_sec': info['instantaneous_ops_per_sec'],
+            'total_commands': info.get('total_commands_processed', 0),
+            'commands_per_sec': info.get('instantaneous_ops_per_sec', 0),
             'cache_hit_rate': f"{(hits / total * 100):.2f}%" if total > 0 else "0%",
-            'connected_clients': info['connected_clients'],
-            'rejected_connections': info['rejected_connections']
+            'connected_clients': info.get('connected_clients', 0),
+            'rejected_connections': info.get('rejected_connections', 0)
         }
+
     
     def get_cache_key_sizes(self, pattern='*'):
         """Get size distribution of cached keys"""
@@ -438,7 +443,7 @@ def setup_monitoring_endpoints(app, redis_client):
 
 if __name__ == "__main__":
     # Test monitoring
-    redis_client = redis.Redis(host='redis', port=6379, decode_responses=True)
+    redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
     monitor = RedisMonitoring(redis_client)
     
     # Print dashboard
